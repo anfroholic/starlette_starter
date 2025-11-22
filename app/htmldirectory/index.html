@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starlette WebSocket Client</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Apply the Inter font globally */
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-start justify-center p-4 sm:p-8">
+    <div class="w-full max-w-2xl bg-white shadow-xl rounded-xl p-6 md:p-8 border border-gray-200">
+        
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Starlette WS Echo Client</h1>
+        <p class="text-sm text-gray-500 mb-6">Connects to the `/ws` endpoint automatically.</p>
+
+        <!-- Connection Status Display -->
+        <div id="status-box" class="p-3 mb-6 rounded-lg font-medium transition duration-300 border border-transparent bg-yellow-100 text-yellow-700">
+            Connecting...
+        </div>
+
+        <!-- Message Input and Send -->
+        <div class="flex flex-col sm:flex-row gap-3 mb-8">
+            <input type="text" id="message-input" placeholder="Type a message to send..." 
+                   class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 transition" 
+                   maxlength="100" disabled>
+            <button id="send-button" 
+                    class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-200 disabled:bg-blue-300 disabled:cursor-not-allowed" 
+                    disabled>
+                Send Message
+            </button>
+        </div>
+
+        <!-- Messages Log -->
+        <h2 class="text-xl font-semibold text-gray-700 mb-3 border-b pb-2">Conversation Log</h2>
+        <div id="messages-log" class="h-64 overflow-y-auto p-3 bg-gray-50 border border-gray-300 rounded-lg space-y-2">
+            <!-- Messages will appear here -->
+            <p class="text-gray-500 italic">Waiting for connection to open...</p>
+        </div>
+
+    </div>
+
+    <script>
+        // The URL is relative since the client is served from the same host/port
+        const WS_URL = "ws://" + location.host + "/ws";
+        let socket;
+        
+        const statusBox = document.getElementById('status-box');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const messagesLog = document.getElementById('messages-log');
+
+        function updateStatus(text, type) {
+            statusBox.textContent = text;
+            statusBox.className = "p-3 mb-6 rounded-lg font-medium transition duration-300 border";
+
+            switch (type) {
+                case 'open':
+                    statusBox.classList.add('bg-green-100', 'text-green-700', 'border-green-300');
+                    messageInput.disabled = false;
+                    sendButton.disabled = false;
+                    break;
+                case 'connecting':
+                    statusBox.classList.add('bg-yellow-100', 'text-yellow-700', 'border-yellow-300');
+                    messageInput.disabled = true;
+                    sendButton.disabled = true;
+                    break;
+                case 'error':
+                    statusBox.classList.add('bg-red-100', 'text-red-700', 'border-red-300');
+                    messageInput.disabled = true;
+                    sendButton.disabled = true;
+                    break;
+                case 'close':
+                    statusBox.classList.add('bg-gray-100', 'text-gray-700', 'border-gray-300');
+                    messageInput.disabled = true;
+                    sendButton.disabled = true;
+                    break;
+            }
+        }
+
+        function logMessage(text, isServer = false) {
+            const p = document.createElement('p');
+            p.className = `text-sm p-2 rounded-lg break-words ${
+                isServer ? 'bg-indigo-100 text-indigo-800 self-start' : 'bg-blue-500 text-white self-end'
+            }`;
+            p.textContent = text;
+
+            const container = document.createElement('div');
+            container.className = isServer ? 'flex justify-start' : 'flex justify-end';
+            container.appendChild(p);
+
+            messagesLog.appendChild(container);
+            // Scroll to the bottom to see the newest message
+            messagesLog.scrollTop = messagesLog.scrollHeight;
+        }
+
+        function connectWebSocket() {
+            updateStatus("Connecting...", 'connecting');
+            
+            try {
+                // Ensure any previous connection is closed
+                if (socket) socket.close();
+                
+                socket = new WebSocket(WS_URL);
+
+                socket.onopen = () => {
+                    updateStatus("Connected! Ready to send messages.", 'open');
+                    messagesLog.innerHTML = ''; // Clear initial message
+                };
+
+                socket.onmessage = (event) => {
+                    logMessage(event.data, true); // True means it's a server message
+                };
+
+                socket.onclose = () => {
+                    updateStatus("Disconnected. Please restart the Python server and refresh.", 'close');
+                    logMessage("--- Connection Closed ---", true);
+                };
+
+                socket.onerror = (error) => {
+                    console.error("WebSocket Error:", error);
+                    updateStatus("Connection Error! Check the Python server console.", 'error');
+                    logMessage("--- Connection Error ---", true);
+                };
+            } catch (e) {
+                console.error("Failed to initialize WebSocket:", e);
+                updateStatus("Fatal error during connection setup.", 'error');
+            }
+        }
+
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            if (message === "" || socket.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            try {
+                socket.send(message);
+                logMessage(message, false); // False means it's a client message
+                messageInput.value = ''; // Clear input
+            } catch (error) {
+                console.error("Failed to send message:", error);
+                updateStatus("Error sending message. Check connection.", 'error');
+            }
+        }
+
+        // Attach event listeners
+        sendButton.addEventListener('click', sendMessage);
+        
+        messageInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Start the connection process when the page loads
+        connectWebSocket();
+
+    </script>
+</body>
+</html>
